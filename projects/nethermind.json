@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "name": "nethermind",
+  "display_name": "Nethermind execution client",
+  "source": {
+    "repo": "NethermindEth/nethermind",
+    "default_branch": "master",
+    "git_url": "https://github.com/NethermindEth/nethermind.git"
+  },
+  "tags": {
+    "pattern": "^(?P<version>\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.]+)?)$",
+    "signed_expected_after": "2.2.2",
+    "signers_dir": "keys/nethermind-signers",
+    "upstream_signers_dir": ".github/release-signers",
+    "allowed_signers_file": "allowed_signers",
+    "gpg_keys_glob": "*.asc",
+    "trusted_commits": {
+      "2.2.0": "1d2aff00ccee8df1ffabc142ee8ea61b3760754e",
+      "2.2.1": "c4f1015be8b989dd609803cc50d3928d6e0dfd4f",
+      "2.2.2": "be201120899ea9cdaab1444b89878c56d1a5a4ad"
+    }
+  },
+  "releases": {
+    "ignore_tag_patterns": ["^bootnode-", "^zkvm-guests-", "^zisk-guest-"]
+  },
+  "signing_key": {
+    "fingerprint": "AD1279765093C6759CD8A40024A774616F1E617E",
+    "key_file": "keys/nethermind-release.asc",
+    "key_urls": [
+      "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x{fingerprint}"
+    ]
+  },
+  "assets": {
+    "template": "nethermind-{version}-{sha8}-{platform}.zip",
+    "signature_suffix": ".asc",
+    "checksums_file": "SHA256SUMS",
+    "checksums_signature": "SHA256SUMS.asc",
+    "checksums_expected_after": "2.2.2",
+    "extra_allowed": ["nethermind-{version}-{sha8}-ref-assemblies.zip"],
+    "extra_signed_expected_after": "2.2.2",
+    "platforms": [
+      {"name": "linux-arm64", "build_dir": "linux-arm64"},
+      {"name": "linux-x64", "build_dir": "linux-x64"},
+      {"name": "macos-arm64", "build_dir": "osx-arm64"},
+      {"name": "macos-x64", "build_dir": "osx-x64"},
+      {"name": "windows-arm64", "build_dir": "win-arm64", "expected_after": "2.2.2"},
+      {"name": "windows-x64", "build_dir": "win-x64"}
+    ]
+  },
+  "attestations": {
+    "signer_workflow": "NethermindEth/nethermind/.github/workflows/release.yml",
+    "predicate_type": "https://slsa.dev/provenance/v1",
+    "expected_after": "2.2.2",
+    "release_attestation": true
+  },
+  "package_rebuild": {
+    "reproducible_archives_expected_after": "2.2.2",
+    "steps": [
+      {
+        "name": "build packages image",
+        "run": ["docker", "build", ".", "-t", "{build_image}", "-f", "scripts/build/Dockerfile",
+                "--build-arg", "COMMIT_HASH={commit}", "--build-arg", "SOURCE_DATE_EPOCH={source_date_epoch}"],
+        "no_cache_flag": "--no-cache"
+      },
+      {
+        "name": "export packages",
+        "run": ["docker", "run", "--rm", "--network", "none", "--user", "{uid}:{gid}", "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges", "--mount", "type=bind,source={out_dir},target=/output", "{build_image}"]
+      }
+    ],
+    "archive": {
+      "image": "images/archive.Dockerfile",
+      "run": ["bash", "/src/scripts/build/archive.sh"],
+      "cwd": "/ws",
+      "mounts": [
+        {"source": "{src_dir}", "target": "/src"},
+        {"source": "{out_dir}", "target": "/out"},
+        {"source": "{work_dir}/archive", "target": "/ws", "writable": true}
+      ],
+      "env": {
+        "PUB_DIR": "/out",
+        "PACKAGE_DIR": "pkg",
+        "GITHUB_WORKSPACE": "/ws",
+        "PACKAGE_PREFIX": "nethermind-{version}-{sha8}"
+      },
+      "output_dir": "{work_dir}/archive/pkg"
+    },
+    "cleanup": [
+      ["docker", "image", "rm", "-f", "{build_image}"]
+    ]
+  },
+  "images": {
+    "registry": "docker.io",
+    "reproducible_expected_after": "2.2.2",
+    "buildkit_image": "moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea",
+    "flavors": [
+      {
+        "name": "default",
+        "dockerfile": "Dockerfile",
+        "repos": ["nethermind/nethermind"],
+        "version_tag": "{version}",
+        "latest_tags": ["latest"],
+        "attestation_subject": "index.docker.io/nethermind/nethermind",
+        "platforms": ["linux/amd64", "linux/arm64"],
+        "build_args": {
+          "CI": "true",
+          "COMMIT_HASH": "{commit}",
+          "VERSION": "{version}",
+          "SOURCE_DATE_EPOCH": "{source_date_epoch}",
+          "BUILD_TIMESTAMP": "{build_timestamp}"
+        },
+        "rewrite_timestamp": true,
+        "labels": {
+          "org.opencontainers.image.revision": "{commit}",
+          "org.opencontainers.image.version": "{version}"
+        }
+      },
+      {
+        "name": "chiseled",
+        "dockerfile": "Dockerfile.chiseled",
+        "repos": ["nethermind/nethermind"],
+        "version_tag": "{version}-chiseled",
+        "latest_tags": ["latest-chiseled"],
+        "attestation_subject": "index.docker.io/nethermind/nethermind",
+        "platforms": ["linux/amd64", "linux/arm64"],
+        "build_args": {
+          "CI": "true",
+          "COMMIT_HASH": "{commit}",
+          "VERSION": "{version}",
+          "SOURCE_DATE_EPOCH": "{source_date_epoch}",
+          "BUILD_TIMESTAMP": "{build_timestamp}"
+        },
+        "rewrite_timestamp": true,
+        "labels": {
+          "org.opencontainers.image.revision": "{commit}",
+          "org.opencontainers.image.version": "{version}"
+        }
+      }
+    ]
+  },
+  "channels": [
+    {
+      "type": "homebrew",
+      "name": "homebrew",
+      "repo": "NethermindEth/homebrew-nethermind",
+      "branch": "main",
+      "path": "nethermind.rb",
+      "template": "templates/nethermind/homebrew.rb",
+      "allowed_paths": ["nethermind.rb", "README.md", "LICENSE", "CODEOWNERS"],
+      "platforms": ["macos-x64", "macos-arm64"]
+    },
+    {
+      "type": "ppa",
+      "name": "ppa",
+      "owner": "nethermindeth",
+      "archive": "nethermind",
+      "source_package": "nethermind",
+      "file": "debian/postinst",
+      "source_dir": "scripts/build/ppa",
+      "changelog": [
+        "nethermind ({version}) jammy; urgency=high",
+        "  * Nethermind v{version}",
+        " -- Nethermind <devops@nethermind.io>  {date}"
+      ],
+      "platforms": ["linux-arm64", "linux-x64"],
+      "dsc_signing_fingerprint": "AD1279765093C6759CD8A40024A774616F1E617E",
+      "legacy_uploads": {
+        "1.27.0": "b2d3e5bedab37e7094c95a1e39c5422cfaed74b9d0387dfdbf67b2629102456f",
+        "1.34.1": "b7aca4be71378b82143774550ab6aff101b387c3cfc9c5b84a05a0c114a36aad"
+      }
+    },
+    {
+      "type": "winget",
+      "name": "winget",
+      "package_id": "Nethermind.Nethermind",
+      "pinned_fields": {
+        "InstallerType": ["zip"],
+        "NestedInstallerType": ["portable"],
+        "RelativeFilePath": ["nethermind.exe"],
+        "PortableCommandAlias": ["nethermind"]
+      },
+      "platforms": ["windows-arm64", "windows-x64"]
+    }
+  ],
+  "watch": {
+    "release_window": 15,
+    "channel_window": 3,
+    "asset_upload_grace_seconds": 0
+  }
+}

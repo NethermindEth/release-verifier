@@ -1,0 +1,84 @@
+# Example GitHub Actions workflow for the release verifier.
+#
+# !! INDEPENDENCE WARNING !!
+# The verifier exists to catch a compromised build/publish pipeline. Nethermind builds and publishes
+# on GitHub Actions, so running the verifier on GitHub-hosted runners shares a failure domain with
+# the thing it checks: a GitHub-level compromise (or a compromise of the account owning this
+# workflow) could tamper with both the release and its verification. Treat this workflow as a
+# convenience or a second opinion; the authoritative verifier should run on infrastructure that
+# neither Nethermind nor GitHub controls (see docs/operations.md). If you do use it, run it from an
+# organization that is NOT NethermindEth, and keep alert sinks outside GitHub.
+#
+# Copy to .github/workflows/ in a repository containing this verifier.
+
+name: Release verifier
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to verify (empty = run watch only)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-verifier
+  cancel-in-progress: false
+
+env:
+  RELEASE_VERIFIER_STATE: ${{ github.workspace }}/state
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out verifier
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # State (baseline snapshot + verified releases) must persist between runs. The Actions cache
+      # is evicted after 7 days without access; if that happens watch silently re-baselines, so
+      # prefer durable storage outside GitHub for real deployments.
+      - name: Restore state
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: state
+          key: release-verifier-state-${{ github.run_id }}
+          restore-keys: release-verifier-state-
+
+      - name: Verify release
+        if: inputs.tag != ''
+        env:
+          # Only used for rate limits and `gh release verify`; no write scopes needed.
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_VERIFIER_SLACK_WEBHOOK: ${{ secrets.RELEASE_VERIFIER_SLACK_WEBHOOK }}
+          TAG: ${{ inputs.tag }}
+        run: bin/release-verifier verify --project nethermind --tag "$TAG" --work-dir "$RUNNER_TEMP/rv-work" --json verify-report.json
+
+      - name: Watch
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_VERIFIER_SLACK_WEBHOOK: ${{ secrets.RELEASE_VERIFIER_SLACK_WEBHOOK }}
+        run: bin/release-verifier watch --project nethermind --json watch-report.json
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: state
+          key: release-verifier-state-${{ github.run_id }}
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-verifier-reports-${{ github.run_id }}
+          path: |
+            *-report.json
+            state/*/reports/
+          retention-days: 90

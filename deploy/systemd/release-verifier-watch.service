@@ -1,0 +1,29 @@
+# Cheap watch of mutable release state. Triggered by release-verifier-watch.timer.
+# Install: copy the repo to /opt/release-verifier, create the user, then
+#   cp deploy/systemd/* /etc/systemd/system/ && systemctl enable --now release-verifier-watch.timer
+[Unit]
+Description=Release verifier: watch release state (nethermind)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=release-verifier
+Group=release-verifier
+# Alert sinks and optional GITHUB_TOKEN live here (mode 0600, root-owned):
+#   RELEASE_VERIFIER_SLACK_WEBHOOK=...   RELEASE_VERIFIER_WEBHOOK_URL=...   GITHUB_TOKEN=...
+EnvironmentFile=-/etc/release-verifier/env
+Environment=RELEASE_VERIFIER_STATE=/var/lib/release-verifier
+StateDirectory=release-verifier
+ExecStart=/opt/release-verifier/bin/release-verifier watch --project nethermind
+# Exit 1 (compromise-class) and 2 (inconclusive) both mark the unit failed so they show up in
+# `systemctl --failed` and any unit-failure alerting you already have.
+TimeoutStartSec=15min
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/release-verifier
+
+[Install]
+WantedBy=multi-user.target

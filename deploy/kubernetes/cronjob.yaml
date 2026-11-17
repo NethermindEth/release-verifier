@@ -1,0 +1,75 @@
+# Watch NMC release state every 15 minutes. State lives on a PVC so diffs survive pod restarts.
+# Only `watch` runs here: it needs no Docker. Run `verify` (rebuilds) on a dedicated VM or a node
+# with a Docker daemon you control; mounting the node's docker.sock into a pod gives it root on the node.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-verifier-state
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-verifier-alerts
+type: Opaque
+stringData:
+  # Fill in or create the secret out of band; leave unset to disable a sink.
+  RELEASE_VERIFIER_SLACK_WEBHOOK: ""
+  RELEASE_VERIFIER_WEBHOOK_URL: ""
+  GITHUB_TOKEN: ""
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: release-verifier-watch
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 10
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+          containers:
+            - name: watch
+              # Build from this repo's Dockerfile and reference it by digest.
+              image: registry.example.org/release-verifier@sha256:REPLACE_WITH_DIGEST
+              args: ["watch", "--project", "nethermind"]
+              env:
+                - name: HOME
+                  value: /tmp
+              envFrom:
+                - secretRef:
+                    name: release-verifier-alerts
+              volumeMounts:
+                - name: state
+                  mountPath: /var/lib/release-verifier
+                - name: tmp
+                  mountPath: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: {cpu: 100m, memory: 128Mi}
+                limits: {memory: 512Mi}
+          volumes:
+            - name: state
+              persistentVolumeClaim:
+                claimName: release-verifier-state
+            - name: tmp
+              emptyDir: {}

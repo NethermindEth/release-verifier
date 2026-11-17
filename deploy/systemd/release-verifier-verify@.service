@@ -1,0 +1,21 @@
+# Full verification (including independent rebuilds) of one tag: the instance name is the tag.
+#   systemctl start release-verifier-verify@2.2.0
+# Needs Docker: the user must be in the `docker` group (equivalent to root on this host, so run the
+# verifier on a dedicated machine). Rebuilds need ~15 GB free disk for packages and ~45 GB with image rebuilds (Docker data root).
+[Unit]
+Description=Release verifier: verify nethermind %i
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=release-verifier
+Group=release-verifier
+SupplementaryGroups=docker
+EnvironmentFile=-/etc/release-verifier/env
+Environment=RELEASE_VERIFIER_STATE=/var/lib/release-verifier
+StateDirectory=release-verifier
+ExecStart=/opt/release-verifier/bin/release-verifier verify --project nethermind --tag %i
+TimeoutStartSec=3h
+NoNewPrivileges=yes
+PrivateTmp=yes
